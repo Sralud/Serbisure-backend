@@ -35,9 +35,11 @@ class LoginSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True)
 
 class ServiceSerializer(serializers.ModelSerializer):
+    provider = UserSerializer(read_only=True)
+    
     class Meta:
         model = Service
-        fields = '__all__'
+        fields = ['id', 'provider', 'name', 'description', 'category', 'price']
 
 class BookingSerializer(serializers.ModelSerializer):
     class Meta:

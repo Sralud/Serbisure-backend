@@ -1,7 +1,8 @@
 from rest_framework import generics, status, viewsets
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import IsAuthenticated, AllowAny, IsAuthenticatedOrReadOnly
+from .permissions import IsServiceWorker, IsServiceProviderOrReadOnly, IsHomeowner
 from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate
 from .models import CustomUser, WorkerProfile, Service, Booking
@@ -62,44 +63,62 @@ class LoginView(APIView):
             return Response({"status": "error", "message": "Invalid email or password"}, status=status.HTTP_401_UNAUTHORIZED)
         return Response({"status": "error", "errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
-from rest_framework.permissions import IsAuthenticated, AllowAny, IsAuthenticatedOrReadOnly
-
-# ... (other code)
-
 class ServiceListView(generics.ListCreateAPIView):
     queryset = Service.objects.all()
     serializer_class = ServiceSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly] # Module 3: Allow Read, require Auth for Create
+    permission_classes = [IsAuthenticatedOrReadOnly, IsServiceWorker] # Module 3: Only Workers can Create
 
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()
         serializer = self.get_serializer(queryset, many=True)
         return Response({"status": "success", "data": serializer.data})
 
+    def perform_create(self, serializer):
+        # Automatically set the provider to the logged in worker
+        serializer.save(provider=self.request.user)
+
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        self.perform_create(serializer)
         return Response({"status": "success", "data": serializer.data}, status=status.HTTP_201_CREATED)
 
 class ServiceDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Service.objects.all()
     serializer_class = ServiceSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly] # Module 3: Allow Read, require Auth for Update/Delete
+    permission_classes = [IsAuthenticatedOrReadOnly, IsServiceProviderOrReadOnly] # Module 3: Only Owner can Edit/Delete
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        self.perform_destroy(instance)
+        return Response({
+            "status": "success", 
+            "message": "Service deleted successfully"
+        }, status=status.HTTP_200_OK)
 
 class BookingViewSet(viewsets.ModelViewSet):
     serializer_class = BookingSerializer
     permission_classes = [IsAuthenticated]
     
     def get_queryset(self):
-        # Users can only see their own bookings
-        return Booking.objects.filter(homeowner=self.request.user)
+        # Homeowners see bookings they made; Workers see bookings where they are the provider
+        user = self.request.user
+        if user.role == 'service_worker':
+            return Booking.objects.filter(service__provider=user)
+        return Booking.objects.filter(homeowner=user)
         
     def perform_create(self, serializer):
         # Automatically tie the booking to the logged in user
         serializer.save(homeowner=self.request.user)
 
     def create(self, request, *args, **kwargs):
+        # Only Homeowners can initiate a booking
+        if request.user.role != 'homeowner':
+            return Response({
+                "status": "error", 
+                "message": "Only homeowners can create bookings."
+            }, status=status.HTTP_403_FORBIDDEN)
+            
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
@@ -110,6 +129,14 @@ class BookingViewSet(viewsets.ModelViewSet):
         queryset = self.filter_queryset(self.get_queryset())
         serializer = self.get_serializer(queryset, many=True)
         return Response({"status": "success", "data": serializer.data})
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        self.perform_destroy(instance)
+        return Response({
+            "status": "success", 
+            "message": "Booking deleted successfully"
+        }, status=status.HTTP_200_OK)
 
 class ProfileView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated]
@@ -211,6 +238,14 @@ class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = CustomUser.objects.all()
     serializer_class = UserSerializer
     permission_classes = [IsAuthenticated] # Module 3: Secure Audit/Admin View
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        self.perform_destroy(instance)
+        return Response({
+            "status": "success", 
+            "message": "User account deleted successfully"
+        }, status=status.HTTP_200_OK)
 
 class WorkerProfileViewSet(viewsets.ModelViewSet):
     queryset = WorkerProfile.objects.all()

@@ -27,6 +27,14 @@ class WorkerProfile(models.Model):
         return f"Profile of {self.user.full_name}"
 
 class Service(models.Model):
+    provider = models.ForeignKey(
+        CustomUser, 
+        on_delete=models.CASCADE, 
+        related_name='services', 
+        limit_choices_to={'role': 'service_worker'},
+        null=True, # Nullable for legacy support
+        blank=True
+    )
     name = models.CharField(max_length=100)
     description = models.TextField()
     category = models.CharField(max_length=50)
