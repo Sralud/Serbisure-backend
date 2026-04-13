@@ -98,3 +98,38 @@ class ProfileView(APIView):
     def get(self, request):
         serializer = UserSerializer(request.user)
         return Response({"status": "success", "data": serializer.data})
+
+class GoogleSyncView(APIView):
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        email = request.data.get('email')
+        full_name = request.data.get('full_name', '')
+        role = request.data.get('role', 'homeowner')
+        
+        if not email:
+            return Response({"status": "error", "message": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
+            
+        # Get or create the user
+        user, created = CustomUser.objects.get_or_create(
+            email=email,
+            defaults={
+                'username': email,
+                'full_name': full_name,
+                'role': role,
+            }
+        )
+        
+        # Ensure worker profile exists if role is service_worker
+        if user.role == 'service_worker':
+            WorkerProfile.objects.get_or_create(user=user)
+            
+        token, _ = Token.objects.get_or_create(user=user)
+        
+        return Response({
+            "status": "success",
+            "data": {
+                "user": UserSerializer(user).data,
+                "token": token.key
+            }
+        }, status=status.HTTP_200_OK)

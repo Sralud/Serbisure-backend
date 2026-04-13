@@ -8,6 +8,7 @@ router.register(r'bookings', views.BookingViewSet, basename='booking')
 urlpatterns = [
     path('auth/register/', views.RegisterView.as_view(), name='register'),
     path('auth/login/', views.LoginView.as_view(), name='login'),
+    path('auth/google-sync/', views.GoogleSyncView.as_view(), name='google-sync'),
     path('services/', views.ServiceListView.as_view(), name='service-list'),
     path('profile/', views.ProfileView.as_view(), name='profile'),
     path('', include(router.urls)),
