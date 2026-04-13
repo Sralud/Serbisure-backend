@@ -5,22 +5,15 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate
 from .models import CustomUser, WorkerProfile, Service, Booking
-from .serializers import UserSerializer, LoginSerializer, ServiceSerializer, BookingSerializer
+from .serializers import UserSerializer, LoginSerializer, RegisterSerializer, ServiceSerializer, BookingSerializer
 
 class RegisterView(APIView):
     permission_classes = [AllowAny]
     
     def post(self, request):
-        serializer = UserSerializer(data=request.data)
+        serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
-            # Create user
-            user = CustomUser.objects.create_user(
-                username=request.data.get('email'),
-                email=request.data.get('email'),
-                password=request.data.get('password'),
-                role=request.data.get('role', 'homeowner'),
-                full_name=request.data.get('full_name', '')
-            )
+            user = serializer.save()
             
             # Create worker profile if role is service_worker
             if user.role == 'service_worker':
@@ -29,11 +22,10 @@ class RegisterView(APIView):
             # Create Token for the new user
             token, created = Token.objects.get_or_create(user=user)
                 
-            response_serializer = UserSerializer(user)
             return Response({
                 "status": "success", 
                 "data": {
-                    "user": response_serializer.data,
+                    "user": UserSerializer(user).data,
                     "token": token.key
                 }
             }, status=status.HTTP_201_CREATED)
@@ -104,23 +96,29 @@ class GoogleSyncView(APIView):
     
     def post(self, request):
         email = request.data.get('email')
-        full_name = request.data.get('full_name', '')
-        role = request.data.get('role', 'homeowner')
         
         if not email:
             return Response({"status": "error", "message": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
             
-        # Get or create the user
-        user, created = CustomUser.objects.get_or_create(
-            email=email,
-            defaults={
-                'username': email,
-                'full_name': full_name,
-                'role': role,
-            }
-        )
+        # 1. Attempt to find existing user
+        user = CustomUser.objects.filter(email=email).first()
         
-        # Ensure worker profile exists if role is service_worker
+        if not user:
+            # 2. If not found, register new user (Shadow Profile)
+            # Use a secure random password if none provided (UID is typically passed in frontend)
+            password = request.data.get('password', CustomUser.objects.make_random_password())
+            serializer = RegisterSerializer(data={
+                'email': email,
+                'password': password,
+                'full_name': request.data.get('full_name', email.split('@')[0]),
+                'role': request.data.get('role', 'homeowner')
+            })
+            if serializer.is_valid():
+                user = serializer.save()
+            else:
+                return Response({"status": "error", "errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # 3. Ensure worker profile exists if role is service_worker
         if user.role == 'service_worker':
             WorkerProfile.objects.get_or_create(user=user)
             
