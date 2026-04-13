@@ -25,9 +25,18 @@ class RegisterView(APIView):
             # Create worker profile if role is service_worker
             if user.role == 'service_worker':
                 WorkerProfile.objects.get_or_create(user=user)
+            
+            # Create Token for the new user
+            token, created = Token.objects.get_or_create(user=user)
                 
             response_serializer = UserSerializer(user)
-            return Response({"status": "success", "data": response_serializer.data}, status=status.HTTP_201_CREATED)
+            return Response({
+                "status": "success", 
+                "data": {
+                    "user": response_serializer.data,
+                    "token": token.key
+                }
+            }, status=status.HTTP_201_CREATED)
         return Response({"status": "error", "errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
 class LoginView(APIView):
