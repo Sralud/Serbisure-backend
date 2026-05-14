@@ -223,5 +223,4 @@ SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 X_FRAME_OPTIONS = 'DENY'
 
 # --- CORS Configuration ---
-# Task 2: Allow frontend applications to access API
 CORS_ALLOW_ALL_ORIGINS = True

@@ -73,7 +73,8 @@ class LoginView(APIView):
         return Response({"status": "error", "errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
 class ServiceListView(generics.ListCreateAPIView):
-    queryset = Service.objects.all()
+    # Return newest services first so clients see recent posts on the first page
+    queryset = Service.objects.all().order_by('-id')
     serializer_class = ServiceSerializer
     permission_classes = [IsServiceWorkerOrReadOnly] # Module 3: Anyone can View, Only Workers can Create
 
@@ -81,8 +82,14 @@ class ServiceListView(generics.ListCreateAPIView):
     def post(self, request, *args, **kwargs):
         return self.create(request, *args, **kwargs)
 
-    def list(self, request, *args, **kwargs):
+    def get_queryset(self):
+        queryset = Service.objects.all().order_by('-id')
+        provider_id = self.request.query_params.get('provider')
+        if provider_id:
+            queryset = queryset.filter(provider_id=provider_id)
+        return queryset
 
+    def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()
         page = self.paginate_queryset(queryset)
         if page is not None:
@@ -161,6 +168,25 @@ class BookingViewSet(viewsets.ModelViewSet):
             return self.get_paginated_response(serializer.data)
         serializer = self.get_serializer(queryset, many=True)
         return Response({"status": "success", "data": serializer.data})
+
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        # Auto-sync WorkerProfile.rating when a booking rating is saved
+        if instance.rating is not None:
+            try:
+                provider = instance.service.provider
+                if provider and provider.role == 'service_worker':
+                    from django.db.models import Avg
+                    avg = Booking.objects.filter(
+                        service__provider=provider,
+                        rating__isnull=False
+                    ).aggregate(avg=Avg('rating'))['avg']
+                    if avg is not None:
+                        profile, _ = WorkerProfile.objects.get_or_create(user=provider)
+                        profile.rating = round(avg, 2)
+                        profile.save()
+            except Exception as e:
+                logger.warning(f"Failed to sync worker rating: {e}")
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -290,3 +316,53 @@ class WorkerProfileViewSet(viewsets.ModelViewSet):
         if getattr(self, 'action', None) in ['update', 'partial_update', 'destroy']:
             return WorkerProfile.objects.filter(user=self.request.user)
         return WorkerProfile.objects.all()
+
+
+class OpenJobsView(generics.ListAPIView):
+    """
+    Returns all PENDING bookings across the system.
+    Used by service workers to browse available jobs they can accept.
+    """
+    serializer_class = BookingSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Booking.objects.filter(status='pending')
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({"status": "success", "data": serializer.data})
+
+
+class AcceptJobView(APIView):
+    """
+    Allows any authenticated service_worker to accept a pending booking.
+    PATCH /api/v1/open-jobs/<id>/accept/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, pk):
+        if request.user.role != 'service_worker':
+            return Response(
+                {"status": "error", "message": "Only service workers can accept jobs."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        try:
+            booking = Booking.objects.get(pk=pk, status='pending')
+        except Booking.DoesNotExist:
+            return Response(
+                {"status": "error", "message": "Job not found or already taken."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        booking.status = 'confirmed'
+        booking.accepted_by = request.user
+        booking.save()
+        serializer = BookingSerializer(booking)
+        return Response({"status": "success", "data": serializer.data})
+
+

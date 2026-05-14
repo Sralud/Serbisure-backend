@@ -31,14 +31,14 @@ class SerbiSureAPITests(TestCase):
             )
 
     def test_api_v1_versioning(self):
-        """Activity A: Verify that the API is accessible via /api/v1/"""
+        """Verify that the API is accessible via /api/v1/"""
         url = "/api/v1/services/"
         # Services GET requires authenticated Service Worker in current system views.py
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_global_pagination(self):
-        """Activity A: Verify that results are paginated (PAGE_SIZE=10)"""
+        """Verify that results are paginated (PAGE_SIZE=10)"""
         url = reverse('service-list')
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -53,14 +53,14 @@ class SerbiSureAPITests(TestCase):
         self.assertEqual(response.data['count'], 15)
 
     def test_authentication_required(self):
-        """Activity D: Verify authentication requirement for private endpoints"""
+        """Verify authentication requirement for private endpoints"""
         self.client.credentials() # Reset token
         url = reverse('booking-list')
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_login_and_access(self):
-        """Activity D: Verify login and authenticated access"""
+        """Verify login and authenticated access"""
         self.client.credentials() # Reset token
         # Login
         url = reverse('login')
@@ -79,7 +79,7 @@ class SerbiSureAPITests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_service_crud_flow(self):
-        """Item 11: Verify End-to-End CRUD flow (Create, Retrieve, Update, Delete)"""
+        """Verify End-to-End CRUD flow (Create, Retrieve, Update, Delete)"""
         # 1. CREATE
         url = reverse('service-list')
         create_res = self.client.post(url, {

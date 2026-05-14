@@ -65,3 +65,4 @@ class Booking(models.Model):
 
     class Meta:
         ordering = ['id']
+
